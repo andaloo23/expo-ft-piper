@@ -10,6 +10,11 @@ openpi/
 droid/
 expo_ft/agents/vla/openpi/
 client/droid/
-assets/
+assets/*
 .venv/
 client/.venv/
+
+# --- piper port ---
+piper_client/.venv/
+# assets/* is ignored above (model assets), but the piper URDF/calibration are source-controlled
+!assets/piper_x/

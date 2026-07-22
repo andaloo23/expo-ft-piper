@@ -19,7 +19,7 @@ from expo_ft.agents import initialize_checkpoint_dir, save_replay_buffer_transit
 from expo_ft.data.replay_buffer import create_replay_buffer
 from expo_ft.data.batch_processor import BatchProcessor
 from expo_ft.env.env_client import EnvClientWrapper
-from expo_ft.env.droid_utils import process_droid_dataset
+from expo_ft.env.robot_dataset import process_robot_hdf5_dataset
 from expo_ft.utils.log_utils import EpisodeState, TrainingStats
 from expo_ft.utils.train_utils import get_batch_info, init_logging, init_wandb
 
@@ -122,8 +122,8 @@ def main(_):
     init_wandb(checkpoint_dir_path, resuming, FLAGS.project_name, FLAGS.run_name)
     wandb.config.update(FLAGS.flag_values_dict(), allow_val_change=resuming)
 
-    if FLAGS.config_task.env_type in ('droid', 'sim'):
-        dataset = process_droid_dataset(
+    if FLAGS.config_task.env_type in ('droid', 'sim', 'piper'):
+        dataset = process_robot_hdf5_dataset(
             FLAGS.dataset_path,
             FLAGS.config_task,
             num_data=FLAGS.num_data,

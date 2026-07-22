@@ -1,0 +1,38 @@
+# Left follower arm on gail8. piper_sdk 0.6.1, interface 2, protocol 2,
+# firmware family S-V1.8-5 (vendored in third_party/piper_sdk).
+robot:
+  side: left
+  follower_can: can_left
+  master_can: can_left_mst
+  sdk_interface: 2
+  sdk_protocol: 2
+  firmware_family: S-V1.8-5
+  gripper_max_open_m: 0.07
+
+control:
+  policy_hz: 10
+  servo_hz: 50
+  command_timeout_s: 0.25
+  max_linear_velocity_mps: 0.03
+  max_angular_velocity_radps: 0.20
+  max_gripper_velocity_mps: 0.02
+  max_joint_delta_rad: 0.02
+  gripper_effort_sdk: 1000
+  move_speed_rate: 100
+
+cameras:
+  static:
+    serial: "327743060187"       # D455
+  wrist:
+    serial: "TO_BE_IDENTIFIED"   # one of D405s 327323070980 / 402323072095
+                                 # -> run scripts/hardware/view_cameras.py to assign
+  width: 320
+  height: 180
+  capture_width: 640
+  capture_height: 360
+  fps: 30
+
+kinematics:
+  urdf: assets/piper_x/urdf/piper_x_description_dualarm_v2.urdf
+  base_frame: left_base_link
+  ee_frame: left_gripper_base

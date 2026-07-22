@@ -1,0 +1,38 @@
+[project]
+name = "expo-ft-piper-client"
+version = "0.1.0"
+description = "EXPO-FT Piper actor: rollout server, teleop and data collection for AgileX Piper arms"
+requires-python = ">=3.11"
+dependencies = [
+    "absl-py>=2.0.0",
+    "h5py",
+    "imageio[ffmpeg]",  # MP4 episode recording
+    "ml-collections",
+    "numpy",
+    "opencv-python",
+    "openpi-client",
+    "pin>=2.7",         # Pinocchio FK/IK
+    "piper-sdk",
+    "pyrealsense2",
+    "python-can>=3.3.4",
+    "pyyaml",
+    "scipy",
+    "tyro",
+    "websockets~=13.1",  # 14+ tightened handshake strictness; pin to match server side
+]
+
+[project.optional-dependencies]
+test = ["pytest", "tqdm"]
+
+# This directory hosts the actor deps but is not itself a buildable package —
+# the `piper_client/` Python package is consumed via `python -m piper_client.run_client`
+# from the repo root, with this directory's .venv activated.
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+# Paths are relative to this file (piper_client/). piper_sdk is vendored in
+# third_party (pinned 0.6.1, interface V2, protocol V2, firmware S-V1.8-5);
+# openpi is cloned into ../expo_ft/agents/vla/openpi. See README.
+piper-sdk = { path = "../third_party/piper_sdk", editable = true }
+openpi-client = { path = "../expo_ft/agents/vla/openpi/packages/openpi-client", editable = true }

@@ -1,0 +1,3 @@
+piper_sdk 0.6.1 (git c05c545, tag 0.6.1-6-gc05c545)
+cloned from local /home/horizon/roboorchard-work/piper_sdk (upstream https://github.com/agilexrobotics/piper_sdk)
+interface V2, protocol V2, firmware family S-V1.8-5
