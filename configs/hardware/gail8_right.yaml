@@ -24,7 +24,7 @@ cameras:
   static:
     serial: "246322301143"       # D455 (shared static camera, verified 2026-07-22)
   wrist:
-    serial: "TO_BE_IDENTIFIED"   # the other D405 of 335122270662 / 353322271383
+    serial: "353322271383"       # D405, from nexus LEFT/RIGHT_WRIST_CAMERA_SERIAL_NO (2026-07-22)
   width: 320
   height: 180
   capture_width: 640
