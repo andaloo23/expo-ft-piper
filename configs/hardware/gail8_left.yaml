@@ -22,10 +22,11 @@ control:
 
 cameras:
   static:
-    serial: "327743060187"       # D455
+    serial: "246322301143"       # D455 (serial verified on gail8 2026-07-22)
   wrist:
-    serial: "TO_BE_IDENTIFIED"   # one of D405s 327323070980 / 402323072095
+    serial: "TO_BE_IDENTIFIED"   # one of D405s 335122270662 / 353322271383
                                  # -> run scripts/hardware/view_cameras.py to assign
+                                 # (needs the HoloBrain record stack stopped — it holds the cameras)
   width: 320
   height: 180
   capture_width: 640

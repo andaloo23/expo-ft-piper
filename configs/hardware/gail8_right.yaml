@@ -22,9 +22,9 @@ control:
 
 cameras:
   static:
-    serial: "327743060187"       # D455 (shared static camera)
+    serial: "246322301143"       # D455 (shared static camera, verified 2026-07-22)
   wrist:
-    serial: "TO_BE_IDENTIFIED"   # the other D405 of 327323070980 / 402323072095
+    serial: "TO_BE_IDENTIFIED"   # the other D405 of 335122270662 / 353322271383
   width: 320
   height: 180
   capture_width: 640
