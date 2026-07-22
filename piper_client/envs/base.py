@@ -28,6 +28,7 @@ from piper_client.hardware.cameras import RealSenseCamera, resize_for_obs
 from piper_client.hardware.gripper import GripperModel
 from piper_client.hardware.kinematics import PiperKinematics
 from piper_client.success.manual import success_detector_manual
+from piper_client.success.operator_panel import OperatorPanel
 from piper_client.teleop.intervention import InterventionDetector
 from piper_client.teleop.master_arm import MasterArm
 
@@ -50,6 +51,7 @@ class PiperEnv:
         dry_run: bool = True,
         enable_motion: bool = False,
         use_master_intervention: bool = False,
+        use_operator_panel: bool = True,
         reset_duration_s: float = 4.0,
         **kwargs,                       # tolerate extra task-config keys
     ):
@@ -134,6 +136,13 @@ class PiperEnv:
             self.master.connect()
             self.intervention = InterventionDetector(self.master)
 
+        # single-keystroke pause/label panel (falls back to line input if no tty)
+        self.panel: OperatorPanel | None = None
+        if use_operator_panel:
+            panel = OperatorPanel()
+            if panel.start():
+                self.panel = panel
+
         # episode bookkeeping
         self._steps_since_reset = 0
         self.done, self.success, self.reward = False, False, 0.0
@@ -153,6 +162,8 @@ class PiperEnv:
         self._steps_since_reset = 0
         self._frame_buffer = []
         self.done, self.success, self.reward = False, False, 0.0
+        if self.panel is not None:
+            self.panel.reset_episode()
 
         if self.reset_joints is not None and not self.dry_run:
             self.servo.move_to_blocking(
@@ -200,6 +211,10 @@ class PiperEnv:
         return obs
 
     def step(self, action):
+        # Operator pause: hold position, don't advance the episode clock.
+        if self.panel is not None and self.panel.paused:
+            return {"executed_action": np.zeros(7)}
+
         self._steps_since_reset += 1
 
         stale = self.watchdog.check_fresh({
@@ -223,7 +238,10 @@ class PiperEnv:
         time_stop = self.auto_reset_due()
         reached_boundary = self.reached_boundary(obs)
 
-        manual = success_detector_manual()
+        if self.panel is not None:
+            manual = self.panel.consume_label() or "keep_going"
+        else:
+            manual = success_detector_manual()
         if manual == "success":
             done, success = True, True
         elif manual == "reset":
@@ -291,6 +309,8 @@ class PiperEnv:
         return self._steps_since_reset
 
     def close(self):
+        if getattr(self, "panel", None) is not None:
+            self.panel.stop()
         try:
             self.servo.stop()
         except Exception:
