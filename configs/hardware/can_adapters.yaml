@@ -1,0 +1,24 @@
+# Physical CAN-adapter identity map for the gail8 rig (recorded 2026-07-22).
+#
+# All four are candleLight USB-CAN adapters (gs_usb, vid:pid 1d50:606f) on a
+# 4-port hub. The USB serial number is the durable identity — it survives
+# replugging into a different port; the usb_port column is informational only.
+# Bitrate: 1,000,000 (1 Mbit/s) on every bus.
+#
+# scripts/hardware/setup_can.sh uses this file to name and raise the
+# interfaces after a reboot (replaces the container-side rename-can.sh).
+
+bitrate: 1000000
+adapters:
+  can_left:       # follower, left arm
+    usb_serial: "002300304148571420343133"
+    usb_port: "7-2.1.4"
+  can_right:      # follower, right arm
+    usb_serial: "003F003C4148571320343133"
+    usb_port: "7-2.1.1"
+  can_left_mst:   # leader (master), left — read-only teleop input
+    usb_serial: "003D002E4148571320343133"
+    usb_port: "7-2.1.3"
+  can_right_mst:  # leader (master), right — read-only teleop input
+    usb_serial: "004E00244148571420343133"
+    usb_port: "7-2.1.2"
