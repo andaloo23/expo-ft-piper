@@ -22,18 +22,47 @@ import tyro
 from piper_client.hardware.cameras import RealSenseCamera, list_connected_serials
 
 
-def main(serials: str = "", width: int = 640, height: int = 360, fps: int = 30):
+def main(serials: str = "", width: int = 640, height: int = 360, fps: int = 30,
+         save_dir: str = ""):
+    """save_dir: write one PNG per camera and exit (default when no display)."""
     devices = list_connected_serials()
     print("Connected RealSense devices:")
     for d in devices:
         print(f"  {d['serial']}  {d['name']}")
     wanted = [s.strip() for s in serials.split(",") if s.strip()] or [d["serial"] for d in devices]
 
+    import os
+    import time
+    if not save_dir and not os.environ.get("DISPLAY"):
+        save_dir = "camera_snapshots"
+        print(f"No display detected — saving snapshots to ./{save_dir}/ instead.")
+
     cams = []
     for s in wanted:
         cam = RealSenseCamera(s, width, height, fps, name=s)
         cam.start()
         cams.append(cam)
+
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        try:
+            for cam in cams:
+                frame = None
+                for _ in range(50):
+                    frame, t = cam.get_latest()
+                    if frame is not None:
+                        break
+                    time.sleep(0.1)
+                if frame is None:
+                    print(f"  {cam.serial}: NO FRAME")
+                else:
+                    path = os.path.join(save_dir, f"cam_{cam.serial}.png")
+                    cv2.imwrite(path, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+                    print(f"  {cam.serial}: saved {path} {frame.shape}")
+        finally:
+            for cam in cams:
+                cam.stop()
+        return
 
     print("Press q to quit. Wave a hand in front of each camera to identify it.")
     try:

@@ -8,15 +8,19 @@ robot:
   sdk_protocol: 2
   firmware_family: S-V1.8-5
   gripper_max_open_m: 0.07
+  gravity_scale: [1.0, 1.09, 1.06, 0.88, 1.0, 1.0]  # gravscale calib (left arm)
 
 control:
   policy_hz: 10
-  servo_hz: 50
+  servo_hz: 100
   command_timeout_s: 0.25
-  max_linear_velocity_mps: 0.03
-  max_angular_velocity_radps: 0.20
-  max_gripper_velocity_mps: 0.02
-  max_joint_delta_rad: 0.02
+  # Action-contract limits: normalized action 1.0 = these velocities.
+  # Sized so human mirrored demos rarely saturate (collect_data warns when
+  # they do). They also bound the policy's speed at execution time.
+  max_linear_velocity_mps: 0.50
+  max_angular_velocity_radps: 2.50
+  max_gripper_velocity_mps: 0.15
+  max_joint_delta_rad: 0.05
   gripper_effort_sdk: 1000
   move_speed_rate: 100
 
@@ -35,3 +39,18 @@ kinematics:
   urdf: assets/piper_x/urdf/piper_x_description_dualarm_v2.urdf
   base_frame: left_base_link
   ee_frame: left_gripper_base
+
+mirror:                    # ALOHA-style joint mirroring (demo collection)
+  hz: 100
+  max_joint_speed_rads: 3.5   # rate cap = safety + engage ramp speed
+  gripper_scale: 1.0          # master opening -> follower opening
+
+mit:                       # JointMitCtrl backend (bypasses MOVE-J planner)
+  enabled: true
+  kp: 25.0                 # proven on this rig's gravity-comp stack
+  kd: 0.8                  # >= ~1.2 buzzes at firmware rate
+  t_ref_clamp_nm: 8.0      # values beyond +-8 ALIAS on this firmware
+  vel_ff_gain: 1.0
+  calibration_store: assets/piper_x/calibration/deflection_calibrations.json
+                           # snapshot of roboorchard-dev calibration store (2026-07-22);
+                           # offset_stiffness + deflection tables are loaded per side at this kp

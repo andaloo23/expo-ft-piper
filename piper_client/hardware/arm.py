@@ -52,6 +52,13 @@ class PiperArm:
             raise RuntimeError(f"{self.can_name}: refusing to command a read-only arm")
         self._piper.MotionCtrl_2(0x01, 0x01, int(speed_rate), 0x00)
 
+    def set_mit_motion_mode(self):
+        """CAN command control, MOVE M, MIT mode (0xAD). The SDK demo sends
+        this alongside each JointMitCtrl batch; we do the same."""
+        if self.read_only:
+            raise RuntimeError(f"{self.can_name}: refusing to command a read-only arm")
+        self._piper.MotionCtrl_2(0x01, 0x04, 0, 0xAD)
+
     # ---------------- feedback ----------------
 
     def read_joints(self) -> tuple[np.ndarray, float]:
@@ -77,6 +84,20 @@ class PiperArm:
         q = np.asarray(q_rad, dtype=np.float64).reshape(6)
         mdeg = [int(round(v * RAD_TO_MDEG)) for v in q]
         self._piper.JointCtrl(*mdeg)
+
+    def command_joints_mit(self, q_rad: np.ndarray, v_rads: np.ndarray,
+                           kp: float, kd: float, t_ff_nm: np.ndarray):
+        """Per-joint MIT command (pos rad, vel rad/s, gains, feedforward N·m).
+        Caller is responsible for clamping t_ff (±8 N·m on this firmware —
+        larger values alias) and for gravity feedforward."""
+        if self.read_only:
+            raise RuntimeError(f"{self.can_name}: refusing to command a read-only arm")
+        q = np.asarray(q_rad, dtype=np.float64).reshape(6)
+        v = np.asarray(v_rads, dtype=np.float64).reshape(6)
+        t = np.asarray(t_ff_nm, dtype=np.float64).reshape(6)
+        for j in range(6):
+            self._piper.JointMitCtrl(j + 1, float(q[j]), float(v[j]),
+                                     float(kp), float(kd), float(t[j]))
 
     def command_gripper(self, opening_m: float, effort_sdk: int = 1000):
         if self.read_only:

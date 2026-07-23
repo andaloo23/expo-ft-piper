@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Compute OpenPI normalization statistics for the Piper dataset (learner env).
 source .venv/bin/activate
+export OPENPI_DATA_HOME=/data/cache/openpi
 
 REPO_ID="expo_ft/piper_pick_cube_10"
 

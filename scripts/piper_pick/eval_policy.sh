@@ -2,6 +2,7 @@
 # Guarded policy evaluation (learner env). Start the actor first with
 # run_client.sh (shadow eval: leave it in --dry-run; real eval: --enable-motion).
 source .venv/bin/activate
+export OPENPI_DATA_HOME=/data/cache/openpi
 CLIENT_IP=127.0.0.1
 
 export CUDA_VISIBLE_DEVICES=0

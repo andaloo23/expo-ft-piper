@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Synchronous EXPO-FT online training (learner env, RTX 5090).
 source .venv/bin/activate
+export OPENPI_DATA_HOME=/data/cache/openpi
 
 CLIENT_IP=127.0.0.1   # actor runs on the same machine (gail8)
 

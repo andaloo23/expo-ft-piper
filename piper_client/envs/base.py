@@ -21,7 +21,41 @@ import yaml
 
 from piper_client.control.action_adapter import ActionAdapter
 from piper_client.control.safety import CanLock, SafetyError, SafetyLimits
+from piper_client.control.mit_servo import MitServoLoop
 from piper_client.control.servo import ServoLoop
+
+
+def build_servo(arm, kin, ctrl: dict, mit_cfg: dict, gravity_scale=None, dry_run=True):
+    """ServoLoop (firmware position mode) or MitServoLoop per the hardware
+    yaml's `mit:` section. Shared by PiperEnv and BimanualPiperEnv."""
+    common = dict(
+        servo_hz=ctrl["servo_hz"],
+        command_timeout_s=ctrl["command_timeout_s"],
+        gripper_effort_sdk=ctrl.get("gripper_effort_sdk", 1000),
+        dry_run=dry_run,
+    )
+    if mit_cfg.get("enabled"):
+        kp = mit_cfg.get("kp", 25.0)
+        offset_stiffness, tables = None, None
+        store = mit_cfg.get("calibration_store")
+        if store:
+            # kp-indexed store (same format/rules as roboorchard-dev):
+            # an uncalibrated kp raises with the available values.
+            from piper_client.control.calibration import load_deflection_calibration
+
+            offset_stiffness, tables = load_deflection_calibration(store, kin.side, kp)
+        return MitServoLoop(
+            arm, kin,
+            kp=kp,
+            kd=mit_cfg.get("kd", 0.8),
+            t_ref_clamp_nm=mit_cfg.get("t_ref_clamp_nm", 8.0),
+            vel_ff_gain=mit_cfg.get("vel_ff_gain", 1.0),
+            gravity_scale=gravity_scale,
+            offset_stiffness=offset_stiffness,
+            deflection_tables=tables,
+            **common,
+        )
+    return ServoLoop(arm, **common)
 from piper_client.control.watchdog import Watchdog
 from piper_client.hardware.arm import PiperArm
 from piper_client.hardware.cameras import RealSenseCamera, resize_for_obs
@@ -112,11 +146,9 @@ class PiperEnv:
 
         q0, _ = self.arm.read_joints()
         grip0, _ = self.arm.read_gripper()
-        self.servo = ServoLoop(
-            self.arm,
-            servo_hz=ctrl["servo_hz"],
-            command_timeout_s=ctrl["command_timeout_s"],
-            gripper_effort_sdk=ctrl.get("gripper_effort_sdk", 1000),
+        self.servo = build_servo(
+            self.arm, self.kin, ctrl, self.hw.get("mit", {}),
+            gravity_scale=self.hw["robot"].get("gravity_scale"),
             dry_run=self.dry_run,
         )
         self.servo.start(q0, grip0)
@@ -155,9 +187,24 @@ class PiperEnv:
             follower_can, self.dry_run, not self.dry_run,
         )
 
+    @property
+    def units(self) -> list[dict]:
+        """Uniform arm-bundle accessor shared with BimanualPiperEnv, so
+        collection code is arm-count agnostic."""
+        return [{
+            "suffix": "",
+            "arm": self.arm,
+            "kin": self.kin,
+            "servo": self.servo,
+            "gripper": self.gripper,
+            "master_can": self.hw["robot"]["master_can"],
+        }]
+
     # ---------------- five-operation protocol ----------------
 
-    def reset(self):
+    def reset(self, move: bool = True):
+        """move=False: episode bookkeeping only, no reset motion — used by
+        mirrored teleop collection, where the master defines the pose."""
         self._before_reset()
         self._steps_since_reset = 0
         self._frame_buffer = []
@@ -165,7 +212,7 @@ class PiperEnv:
         if self.panel is not None:
             self.panel.reset_episode()
 
-        if self.reset_joints is not None and not self.dry_run:
+        if move and self.reset_joints is not None and not self.dry_run:
             self.servo.move_to_blocking(
                 self.reset_joints, self.reset_gripper_opening_m, self.reset_duration_s
             )
@@ -178,6 +225,15 @@ class PiperEnv:
     def _before_reset(self):
         """Override in subclasses (e.g. open gripper / detector reset)."""
         pass
+
+    def reset_episode_clock(self):
+        """Restart episode bookkeeping without moving the arm — used after
+        the teleop engage phase so ramp time doesn't count against the
+        episode budget or leave a stale done/label."""
+        self._steps_since_reset = 0
+        self.done, self.success, self.reward = False, False, 0.0
+        if self.panel is not None:
+            self.panel.reset_episode()
 
     def get_observation(self):
         static_rgb, t_static = self.static_cam.get_latest()
@@ -248,7 +304,13 @@ class PiperEnv:
             done, success = True, False
         else:
             success, terminate = self.detect(obs)
-            done = bool(success or terminate or time_stop or reached_boundary)
+            # Boundary contact is logged but does NOT end the episode
+            # (upstream DROID behavior): the policy path already clamps
+            # motion at the workspace bounds, and teleop shouldn't be
+            # interrupted by them.
+            if reached_boundary:
+                logger.info("workspace boundary touched (episode continues)")
+            done = bool(success or terminate or time_stop)
 
         if done:
             logger.info("Done! success=%s time_stop=%s manual=%s boundary=%s",
@@ -267,9 +329,24 @@ class PiperEnv:
         return False, False
 
     def get_human_override_action(self):
-        """(action_7d or None, is_human) from the master arm, if configured."""
+        """(action_7d or None, is_human) from the master arm, if configured.
+
+        Two ways to take over:
+        - 't' on the operator panel: human control regardless of master
+          motion — holding the master still commands zero velocity (arm
+          stops), and control returns only on the next 't'.
+        - moving the master (motion threshold): quick grab-corrections;
+          control returns ~0.5 s after the master stops.
+        """
         if self.intervention is None:
             return None, False
+        if self.panel is not None and self.panel.takeover:
+            try:
+                sample = self.intervention.master.read()
+            except Exception:
+                logger.exception("master arm read failed during takeover")
+                return np.zeros(7), True
+            return sample.action, True
         return self.intervention.get_human_action()
 
     def auto_reset_due(self):

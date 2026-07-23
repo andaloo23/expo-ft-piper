@@ -57,6 +57,12 @@ class MasterArm:
     def connect(self):
         self.arm.connect()
 
+    def read_raw(self) -> tuple[np.ndarray, float]:
+        """(q6 rad, gripper opening m) — for joint-space mirroring."""
+        q, _ = self.arm.read_joints()
+        grip_m, _ = self.arm.read_gripper()
+        return q, grip_m
+
     def read(self) -> MasterSample:
         q, _ = self.arm.read_joints()
         grip_m, _ = self.arm.read_gripper()

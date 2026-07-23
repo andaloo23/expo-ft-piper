@@ -1,22 +1,25 @@
-# Right follower arm on gail8. Placeholder — verify camera serials and
-# re-preview safe motions before first use (right arm is mirrored).
+# Both arms on gail8 — bimanual teleop/demo collection.
+# piper_sdk 0.6.1, interface 2, protocol 2, firmware S-V1.8-5 (vendored).
 robot:
-  side: right
-  follower_can: can_right
-  master_can: can_right_mst
   sdk_interface: 2
   sdk_protocol: 2
   firmware_family: S-V1.8-5
-  gripper_max_open_m: 0.07
-  gravity_scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]     # UNCALIBRATED (right arm)
+  left:
+    follower_can: can_left
+    master_can: can_left_mst
+    gripper_max_open_m: 0.07
+    gravity_scale: [1.0, 1.09, 1.06, 0.88, 1.0, 1.0]  # gravscale calib (left arm)
+  right:
+    follower_can: can_right
+    master_can: can_right_mst
+    gripper_max_open_m: 0.07
+    gravity_scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]     # UNCALIBRATED (right arm)
 
 control:
   policy_hz: 10
   servo_hz: 100
   command_timeout_s: 0.25
   # Action-contract limits: normalized action 1.0 = these velocities.
-  # Sized so human mirrored demos rarely saturate (collect_data warns when
-  # they do). They also bound the policy's speed at execution time.
   max_linear_velocity_mps: 0.50
   max_angular_velocity_radps: 2.50
   max_gripper_velocity_mps: 0.15
@@ -26,9 +29,11 @@ control:
 
 cameras:
   static:
-    serial: "246322301143"       # D455 (shared static camera, verified 2026-07-22)
-  wrist:
-    serial: "353322271383"       # D405, from nexus LEFT/RIGHT_WRIST_CAMERA_SERIAL_NO (2026-07-22)
+    serial: "246322301143"       # D455
+  wrist_left:
+    serial: "335122270662"       # D405
+  wrist_right:
+    serial: "353322271383"       # D405
   width: 320
   height: 180
   capture_width: 640
@@ -37,13 +42,17 @@ cameras:
 
 kinematics:
   urdf: assets/piper_x/urdf/piper_x_description_dualarm_v2.urdf
-  base_frame: right_base_link
-  ee_frame: right_gripper_base
+  left:
+    base_frame: left_base_link
+    ee_frame: left_gripper_base
+  right:
+    base_frame: right_base_link
+    ee_frame: right_gripper_base
 
-mirror:                    # ALOHA-style joint mirroring (demo collection)
+mirror:
   hz: 100
-  max_joint_speed_rads: 3.5   # rate cap = safety + engage ramp speed
-  gripper_scale: 1.0          # master opening -> follower opening
+  max_joint_speed_rads: 3.5
+  gripper_scale: 1.0
 
 mit:                       # JointMitCtrl backend (bypasses MOVE-J planner)
   enabled: true

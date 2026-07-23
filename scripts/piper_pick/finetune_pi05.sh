@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Pi0.5-DROID initialization -> Piper supervised fine-tuning (learner env, RTX 5090).
 source .venv/bin/activate
+export OPENPI_DATA_HOME=/data/cache/openpi
 export CUDA_VISIBLE_DEVICES=0
 
 DATA_ID="piper_pick_cube_10"

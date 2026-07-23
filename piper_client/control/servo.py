@@ -93,7 +93,12 @@ class ServoLoop:
                     stale = (now - t_set) > (dur + self.command_timeout_s)
                     if stale:
                         if not self._holding:
-                            logger.warning("servo: command timeout — holding position")
+                            # Reaching the target and then hearing nothing is the
+                            # normal end of a blocking move — only warn if we were
+                            # starved mid-interpolation.
+                            reached = self._q_sent is not None and np.abs(self._q_sent - target_q).max() < 1e-9
+                            if not reached:
+                                logger.warning("servo: command timeout — holding position")
                             self._holding = True
                         # hold: keep re-sending the current interpolated point
                     else:
@@ -106,9 +111,7 @@ class ServoLoop:
 
             if q_send is not None and not self.dry_run:
                 try:
-                    self.arm.command_joints(q_send)
-                    if grip_send is not None:
-                        self.arm.command_gripper(grip_send, self.gripper_effort_sdk)
+                    self._send(q_send, grip_send)
                 except Exception:
                     logger.exception("servo: send failed")
 
@@ -118,6 +121,12 @@ class ServoLoop:
                 time.sleep(sleep)
             else:
                 next_tick = time.monotonic()
+
+    def _send(self, q_send, grip_send):
+        """Transmit one setpoint. Subclasses override (e.g. MIT mode)."""
+        self.arm.command_joints(q_send)
+        if grip_send is not None:
+            self.arm.command_gripper(grip_send, self.gripper_effort_sdk)
 
     def stop(self):
         self._stop.set()

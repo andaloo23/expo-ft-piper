@@ -21,7 +21,6 @@ import yaml
 
 from piper_client.control.action_adapter import ActionAdapter
 from piper_client.control.safety import CanLock, SafetyLimits
-from piper_client.control.servo import ServoLoop
 from piper_client.hardware.arm import PiperArm
 from piper_client.hardware.gripper import GripperModel
 from piper_client.hardware.kinematics import PiperKinematics
@@ -70,8 +69,9 @@ def main(task: str = "configs/task/piper_pick.py", axis: str = "z",
                 raise SystemExit("Not confirmed.")
             arm.enable()
             arm.set_joint_motion_mode(ctrl.get("move_speed_rate", 100))
-            servo = ServoLoop(arm, ctrl["servo_hz"], ctrl["command_timeout_s"],
-                              ctrl.get("gripper_effort_sdk", 1000), dry_run=False)
+            from piper_client.envs.base import build_servo
+            servo = build_servo(arm, kin, ctrl, hw.get("mit", {}),
+                                gravity_scale=hw["robot"].get("gravity_scale"), dry_run=False)
             servo.start(q0, grip0)
 
         try:

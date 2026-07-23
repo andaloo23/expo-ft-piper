@@ -38,6 +38,18 @@ def test_reset_episode_clears_state():
     assert p.consume_label() is None
 
 
+def test_takeover_toggles_and_clears_on_reset():
+    p = make_panel()
+    assert not p.takeover
+    p.handle_key("t")
+    assert p.takeover
+    p.handle_key("t")
+    assert not p.takeover
+    p.handle_key("t")
+    p.reset_episode()
+    assert not p.takeover
+
+
 def test_unknown_keys_ignored():
     p = make_panel()
     for ch in ("x", "1", "\n", "?"):

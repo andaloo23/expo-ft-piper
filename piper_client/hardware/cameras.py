@@ -37,7 +37,36 @@ class RealSenseCamera:
         self._thread: threading.Thread | None = None
         self._pipeline = None
 
-    def start(self):
+    def start(self, first_frame_timeout_s: float = 4.0):
+        """Open the pipeline and verify frames actually flow. RealSense
+        devices (D455 especially) can wedge after rapid open/close cycles —
+        pipeline.start() succeeds but no frames ever arrive. On a silent
+        camera we issue a hardware reset and retry once before failing."""
+        import pyrealsense2 as rs
+
+        for attempt in (1, 2):
+            self._pipeline = self._open_pipeline()
+            if self._first_frame_arrives(first_frame_timeout_s):
+                break
+            try:
+                self._pipeline.stop()
+            except Exception:
+                pass
+            self._pipeline = None
+            if attempt == 2:
+                raise RuntimeError(f"camera {self.serial}: no frames after hardware reset")
+            logger.warning("%s: pipeline silent — issuing hardware reset", self.serial)
+            for dev in rs.context().query_devices():
+                if dev.get_info(rs.camera_info.serial_number) == self.serial:
+                    dev.hardware_reset()
+            time.sleep(6.0)  # give the device time to re-enumerate
+
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, daemon=True, name=f"rs-{self.name}")
+        self._thread.start()
+        logger.info("camera %s (%s) started", self.name, self.serial)
+
+    def _open_pipeline(self):
         import pyrealsense2 as rs
 
         pipeline = rs.pipeline()
@@ -55,11 +84,18 @@ class RealSenseCamera:
             config.enable_device(self.serial)
             config.enable_stream(rs.stream.color, rs.format.rgb8, self.fps)
             pipeline.start(config)
-        self._pipeline = pipeline
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, daemon=True, name=f"rs-{self.name}")
-        self._thread.start()
-        logger.info("camera %s (%s) started", self.name, self.serial)
+        return pipeline
+
+    def _first_frame_arrives(self, timeout_s: float) -> bool:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            try:
+                frames = self._pipeline.wait_for_frames(timeout_ms=1000)
+                if frames.get_color_frame():
+                    return True
+            except RuntimeError:
+                pass
+        return False
 
     def _loop(self):
         while not self._stop.is_set():

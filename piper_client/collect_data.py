@@ -1,12 +1,14 @@
 """Master-arm demonstration collection for one Piper follower arm.
 
-Loop at policy rate: read the master arm as a normalized 7D action, execute
-it on the follower through the same ActionAdapter/servo path the policy
-will use, and record (observation, executed action) pairs to traj.hdf5 in
-the EXPO-FT raw layout. Successful episodes are routed to
+Teleop is ALOHA-style joint mirroring at servo rate (teleop/mirror.py):
+the follower copies the master's joints 1:1, speed set by your hand,
+rate-clamped for safety. Recording stays in the training contract: at
+10 Hz the executed normalized Cartesian-velocity action is derived from
+the follower's actual motion and written with the observation to
+traj.hdf5 in the EXPO-FT raw layout. Successful episodes are routed to
 <save_root>/success/<id>/traj.hdf5; failures are discarded.
 
-End an episode from the terminal: 1 = success, 2 = reset (failure).
+Keys (no Enter): space=pause  s=success  f=failure.
 
 Usage:
     python -m piper_client.collect_data \
@@ -28,6 +30,7 @@ from ml_collections import config_flags
 
 from piper_client.recording.hdf5_writer import HDF5TrajWriter
 from piper_client.teleop.master_arm import MasterArm
+from piper_client.teleop.mirror import MirrorController, executed_action_from_obs
 
 FLAGS = flags.FLAGS
 
@@ -51,14 +54,59 @@ def smallest_missing_id(dir_path: str) -> int:
     return i
 
 
-def collect_trajectory(env, master: MasterArm, save_filepath: str | None):
-    """One episode; returns {"success": bool}."""
-    master.reset_state()
+def _suffixed_obs(obs, suffix):
+    """View of one arm's fields under the single-arm key names."""
+    return {
+        "cartesian_position": obs[f"cartesian_position{suffix}"],
+        "gripper_position": obs[f"gripper_position{suffix}"],
+    }
+
+
+def wait_for_engage(env, units, mirrors, tol_rad: float = 0.05):
+    """Block until every follower has converged to its master AND the left
+    EE is inside the task workspace. The episode (recording, clock) starts
+    only after this returns, so the engage ramp is never part of the data."""
+    print("[engage] move the master(s) into the workspace; episode starts when "
+          "the follower(s) have converged...")
+    last_msg = 0.0
+    while True:
+        why = []
+        for u, mc in zip(units, mirrors):
+            q_f, _ = u["arm"].read_joints()
+            q_m, _ = mc.master.read_raw()
+            gap = np.abs(q_f - u["kin"].clamp_to_limits(q_m)).max()
+            if gap >= tol_rad:
+                why.append(f"{u['suffix'] or '_left'} joint gap {gap:.2f} rad")
+            if u["suffix"] == "" and env.bounds is not None:
+                pose = u["kin"].fk(q_f)
+                in_bounds = bool((pose[:3] > env.bounds[:, 0]).all()
+                                 and (pose[:3] < env.bounds[:, 1]).all())
+                if not in_bounds:
+                    why.append(f"left EE {np.round(pose[:3], 2)} outside workspace")
+        if not why:
+            print("[engage] engaged — recording.")
+            return
+        now = time.monotonic()
+        if now - last_msg > 3.0:
+            print(f"[engage] waiting: {'; '.join(why)}")
+            last_msg = now
+        time.sleep(0.1)
+
+
+def collect_trajectory(env, units, mirrors, save_filepath: str | None):
+    """One episode of mirrored teleop; returns {"success": bool}."""
     writer = HDF5TrajWriter(save_filepath) if save_filepath else None
-    env.reset()
+    # No reset motion: the master defines the pose, and mirroring stays
+    # engaged across episodes (bookkeeping-only reset).
+    env.reset(move=False)
+    wait_for_engage(env, units, mirrors)
+    env.reset_episode_clock()
     dt = 1.0 / env.control_hz
-    step_start = time.monotonic()
+    next_tick = time.monotonic()
     success = False
+    prev_obs = None
+    n_sat = 0
+    raw_history: list[np.ndarray] = []
     try:
         while True:
             obs = env.get_observation()
@@ -66,32 +114,55 @@ def collect_trajectory(env, master: MasterArm, save_filepath: str | None):
             if done:
                 return {"success": bool(success)}
 
-            sample = master.read()
-            action = sample.action
-
-            elapsed = time.monotonic() - step_start
-            if elapsed < dt:
-                time.sleep(dt - elapsed)
-            step_result = env.step(action)
-            step_start = time.monotonic()
-            executed = np.asarray(step_result["executed_action"], dtype=np.float32)
-
-            if writer is not None:
+            if prev_obs is not None and writer is not None:
+                # Actions = each follower's actual motion between the last
+                # two observations, in the normalized training contract.
+                action_group = {}
+                any_sat = False
+                for u in units:
+                    executed, saturated, raw = executed_action_from_obs(
+                        _suffixed_obs(prev_obs, u["suffix"]),
+                        _suffixed_obs(obs, u["suffix"]),
+                        dt, env.limits, u["gripper"].max_open_m,
+                    )
+                    any_sat = any_sat or saturated
+                    raw_history.append(np.abs(raw))
+                    executed = executed.astype(np.float32)
+                    action_group[f"cartesian_velocity{u['suffix']}"] = executed[:6]
+                    action_group[f"gripper_velocity{u['suffix']}"] = np.float32(executed[6])
+                n_sat += int(any_sat)
                 writer.write_timestep({
-                    "saved_observation": obs,
-                    "action": {
-                        "cartesian_velocity": executed[:6],
-                        "gripper_velocity": np.float32(executed[6]),
-                    },
+                    "saved_observation": prev_obs,
+                    "action": action_group,
                 })
+            prev_obs = obs
+
+            next_tick += dt
+            sleep = next_tick - time.monotonic()
+            if sleep > 0:
+                time.sleep(sleep)
+            else:
+                next_tick = time.monotonic()
     finally:
         if writer is not None:
             steps = writer.num_steps
             writer.close()
             print(f"episode finished: {steps} steps, success={success}")
+            if steps and n_sat:
+                pct = 100.0 * n_sat / steps
+                print(f"WARNING: {n_sat}/{steps} steps ({pct:.0f}%) saturated the "
+                      f"velocity limits — recorded actions understate the motion. "
+                      f"Move slower or raise the limits in the hardware yaml.")
+            if raw_history:
+                r = np.stack(raw_history)  # |raw|, 1.0 == at the limit
+                p95 = np.percentile(r, 95, axis=0)
+                mx = r.max(axis=0)
+                names = ["vx", "vy", "vz", "wx", "wy", "wz", "grip"]
+                print("  velocity usage (1.0 = limit): "
+                      + "  ".join(f"{n} p95={p:.2f} max={m:.2f}" for n, p, m in zip(names, p95, mx)))
 
 
-def run_and_route_one(env, master: MasterArm, base_dir: str):
+def run_and_route_one(env, units, mirrors, base_dir: str):
     tmp_root = os.path.join(base_dir, "tmp")
     os.makedirs(tmp_root, exist_ok=True)
     tmp_dir = os.path.join(tmp_root, f"session_{int(time.time())}")
@@ -99,7 +170,7 @@ def run_and_route_one(env, master: MasterArm, base_dir: str):
     save_filepath = os.path.join(tmp_dir, "traj.hdf5")
 
     print("Start collecting ->", save_filepath)
-    result = collect_trajectory(env, master, save_filepath)
+    result = collect_trajectory(env, units, mirrors, save_filepath)
 
     if not result["success"]:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -125,15 +196,32 @@ def main(_):
     env_kwargs["use_master_intervention"] = False  # we read the master directly here
 
     if FLAGS.enable_motion:
-        answer = input("Motion ENABLED — follower will mirror the master. Type 'yes' to continue: ")
+        answer = input("Motion ENABLED — follower will mirror the master (hold the master "
+                       "near a neutral pose; the follower ramps to it on start). "
+                       "Type 'yes' to continue: ")
         if answer.strip().lower() != "yes":
             raise SystemExit("Motion not confirmed; exiting.")
 
     env = task_config.env(**env_kwargs)
     env.ignore_auto_reset = True  # teleop: end episodes manually, not on step budget
 
-    master = MasterArm(env.hw["robot"]["master_can"], env.kin, env.gripper, env.limits)
-    master.connect()
+    units = env.units             # one entry per arm (single or bimanual env)
+    mirror_cfg = env.hw.get("mirror", {})
+    masters, mirrors = [], []
+    for u in units:
+        master = MasterArm(u["master_can"], u["kin"], u["gripper"], env.limits)
+        master.connect()
+        mirror = MirrorController(
+            master, u["servo"], u["kin"], panel=env.panel,
+            mirror_hz=mirror_cfg.get("hz", 50),
+            max_joint_speed_rads=mirror_cfg.get("max_joint_speed_rads", 2.0),
+            gripper_scale=mirror_cfg.get("gripper_scale", 1.0),
+        )
+        mirror.start()
+        q_now, _ = u["arm"].read_joints()
+        mirror.resume(q_now)  # one engage ramp per session; stays coupled after
+        masters.append(master)
+        mirrors.append(mirror)
 
     episode, successful = 0, 0
     try:
@@ -141,14 +229,17 @@ def main(_):
             episode += 1
             print(f"\n=== Episode {episode} (successful {successful}/"
                   f"{FLAGS.num_episodes if FLAGS.num_episodes > 0 else '∞'}) ===")
-            result = run_and_route_one(env, master, base_dir)
+            result = run_and_route_one(env, units, mirrors, base_dir)
             if result["result"]["success"]:
                 successful += 1
             if FLAGS.num_episodes > 0 and successful >= FLAGS.num_episodes:
                 print(f"Reached target of {FLAGS.num_episodes} successful episodes.")
                 break
     finally:
-        master.close()
+        for mirror in mirrors:
+            mirror.stop()
+        for master in masters:
+            master.close()
         env.close()
 
 

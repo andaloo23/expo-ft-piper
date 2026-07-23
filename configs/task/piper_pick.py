@@ -22,13 +22,14 @@ def get_config():
     config.language_instruction = "pick up the cube"
     config.hardware_config = "configs/hardware/gail8_left.yaml"
 
-    # Workspace over the table in the left_base_link frame. PLACEHOLDER —
-    # verify against the physical rig (table at base plane z=0; keep the
-    # gripper above z≈0.05) before enabling motion.
+    # Workspace over the table in the left_base_link frame. Deliberately
+    # WIDE for demo collection (bounds don't end episodes; they only clamp
+    # the policy's targets and gate teleop engage). Before online RL,
+    # tighten this to the region the collected demos actually cover.
     config.bounds = np.array([
-        [0.15, 0.55],    # x
-        [-0.25, 0.25],   # y
-        [0.05, 0.45],    # z
+        [0.02, 0.65],    # x
+        [-0.40, 0.40],   # y
+        [0.01, 0.60],    # z
     ])
 
     # Nominal manipulation-ready pose (6, rad): FK puts the EE at

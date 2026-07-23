@@ -4,6 +4,8 @@ No Enter needed — designed to be used with one hand while the other holds
 the master arm:
 
     space  pause / resume   (servo holds position instantly)
+    t      takeover on/off  (master arm drives; policy ignored while on —
+                             holding the master still holds the arm still)
     s      end episode as SUCCESS (reward 1)
     f      end episode as FAILURE (reward 0)
     ?      print this help
@@ -22,7 +24,7 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-HELP = "[panel] space=pause/resume  s=success  f=failure  ?=help"
+HELP = "[panel] space=pause/resume  t=takeover on/off  s=success  f=failure  ?=help"
 
 
 class OperatorPanel:
@@ -30,6 +32,7 @@ class OperatorPanel:
         """key_source: iterator of chars (tests); None = read /dev/tty."""
         self._lock = threading.Lock()
         self._paused = False
+        self._takeover = False
         self._label: str | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -72,6 +75,11 @@ class OperatorPanel:
         with self._lock:
             return self._paused
 
+    @property
+    def takeover(self) -> bool:
+        with self._lock:
+            return self._takeover
+
     def consume_label(self) -> str | None:
         """Return and clear 'success' / 'reset', or None."""
         with self._lock:
@@ -79,9 +87,10 @@ class OperatorPanel:
             return label
 
     def reset_episode(self):
-        """Clear pause + pending label at episode boundaries."""
+        """Clear pause/takeover + pending label at episode boundaries."""
         with self._lock:
             self._paused = False
+            self._takeover = False
             self._label = None
 
     # ---------------- key handling ----------------
@@ -92,6 +101,12 @@ class OperatorPanel:
                 self._paused = not self._paused
                 paused = self._paused
             print(f"[panel] {'PAUSED — arm holding position' if paused else 'resumed'}", flush=True)
+        elif ch in ("t", "T"):
+            with self._lock:
+                self._takeover = not self._takeover
+                takeover = self._takeover
+            print(f"[panel] {'TAKEOVER — master arm in control' if takeover else 'takeover off — policy resumes'}",
+                  flush=True)
         elif ch in ("s", "S"):
             with self._lock:
                 self._label = "success"

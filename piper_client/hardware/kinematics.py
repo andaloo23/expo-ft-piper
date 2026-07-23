@@ -66,6 +66,13 @@ class PiperKinematics:
     def clamp_to_limits(self, q: np.ndarray, margin: float = 0.0) -> np.ndarray:
         return np.clip(q, self.lower_limits + margin, self.upper_limits - margin)
 
+    def gravity_torques(self, q: np.ndarray) -> np.ndarray:
+        """Joint torques (N·m) holding configuration q against gravity."""
+        q = np.asarray(q, dtype=np.float64).reshape(self.model.nq)
+        return np.asarray(
+            pin.computeGeneralizedGravity(self.model, self.data, q), dtype=np.float64
+        ).copy()
+
     def fk(self, q: np.ndarray) -> np.ndarray:
         """EE pose (6D) in the base frame for joint config q (6, rad)."""
         return se3_to_pose(self.fk_se3(q))
